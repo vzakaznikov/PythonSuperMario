@@ -11,4 +11,4 @@ pg.display.set_caption(c.ORIGINAL_CAPTION)
 SCREEN = pg.display.set_mode(c.SCREEN_SIZE)
 SCREEN_RECT = SCREEN.get_rect()
 
-GFX = tools.load_all_gfx(os.path.join("resources","graphics"))
+GFX = tools.load_all_gfx(os.path.join(os.path.dirname(__file__),"..","resources","graphics"))
