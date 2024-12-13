@@ -1,6 +1,16 @@
 from testflows.core import debug
 from .base import Model
 
+# BUG? pressing a and left or right will not result in jump
+# FIXME: mario is invincible for some time when transforming from big to small
+
+# BUG? first x is evaluated then y?
+# FIXME: jump moving right and touching the edge of the obstacle
+# 293ms     ⟥    [debug] 7 Keys: Keys(left,a) Player: 2535, 328         - here y touches pipe
+#           39s 293ms     ⟥    [debug] 8 Keys: Keys(left,a) Player: 2530, 324 - here mario is stoppped by the pipe but jump continues up but x speed now is 0!
+#           39s 293ms     ⟥    [debug] 9 Keys: Keys(left,a) Player: 2530, 320
+#           39s 293ms     ⟥    [debug] Keys: {'pipe': [Element(name='pipe', box=<rect(2444, 366, 86, 170)>, id=129006182620880)], 'collider': [Element(name='collider', box=<rect(0, 538, 2953, 60)>, id=129006284272448), Element(name='collider', box=<rect(3048, 538, 635, 60)>, id=129006182615984)], 'player': [Element(name='player', box=<rect(2530, 320, 30, 40)>, id=129006182761808)]}
+
 
 def find_element(name, state):
     """Find element in the specified state."""
@@ -15,6 +25,24 @@ def find_mario(state):
     return find_element("player", state)
 
 
+def top_touch(box1, box2):
+    """
+    Check if box1's top edge touches box2's bottom edge.
+
+    Args:
+        box1 (pg.Rect): The first rectangle.
+        box2 (pg.Rect): The second rectangle.
+
+    Returns:
+        bool: True if box1's top edge touches box2's bottom edge, False otherwise.
+    """
+    touched = (box1.top == box2.bottom) and (
+        (box1.right > box2.left and box1.right <= box2.right)
+        or (box1.left < box2.right and box1.left >= box2.left)
+    )
+    return touched
+
+
 def bottom_touch(box1, box2):
     """
     Check if box1's bottom edge touches box2's top edge.
@@ -26,10 +54,9 @@ def bottom_touch(box1, box2):
     Returns:
         bool: True if box1's bottom edge touches box2's top edge, False otherwise.
     """
-    touched = (box2.top == box1.bottom) and (
-        ((box1.left < box2.right) and (box1.left > box2.left))
-        or ((box1.right < box2.right) and (box1.right > box2.left))
-        or ((box1.left <= box2.left) and (box1.right >= box2.right))
+    touched = (box1.bottom == box2.top) and (
+        (box1.right > box2.left and box1.right <= box2.right)
+        or (box1.left < box2.right and box1.left >= box2.left)
     )
     return touched
 
@@ -46,11 +73,10 @@ def right_touch(box1, box2):
         bool: True if box1's right edge touches box2's left edge, False otherwise.
     """
     touched = (
-        box1.left < box2.left and box1.right >= box2.left and box2.right > box1.right
+        box1.left < box2.left and box1.right >= box2.left and box1.right < box2.right
     ) and (
-        ((box1.bottom >= box2.top) and (box1.top < box2.top))
-        or ((box1.top <= box2.bottom) and (box1.bottom > box2.top))
-        or ((box1.top >= box2.top) and (box1.bottom <= box2.bottom))
+        ((box1.bottom > box2.top) and (box1.bottom <= box2.bottom))
+        or ((box1.top < box2.bottom) and (box1.top >= box2.top))
     )
     return touched
 
@@ -67,56 +93,87 @@ def left_touch(box1, box2):
         bool: True if box1's left edge touches box2's right edge, False otherwise.
     """
     touched = (
-        box2.left < box1.left and box1.left <= box2.right and box1.right > box2.right
+        box1.left > box2.left and box1.left <= box2.right and box1.right > box2.right
     ) and (
-        ((box1.bottom >= box2.top) and (box1.top < box2.top))
-        or ((box1.top <= box2.bottom) and (box1.bottom > box2.top))
-        or ((box1.top >= box2.top) and (box1.bottom <= box2.bottom))
+        ((box1.bottom > box2.top) and (box1.bottom <= box2.bottom))
+        or ((box1.top < box2.bottom) and (box1.top >= box2.top))
     )
     return touched
 
 
-def has_right_collision(game, element, state):
+def has_right_collision(game, element, state, objects=None):
     """Check if the element has a right collision with another object."""
-    for boxes in state.boxes.values():
-        for box in boxes:
-            if box is element:
-                continue
-            if right_touch(element.box, box.box):
-                # Touched another object
-                overlay(game, elements=[element, box], color=[0, 255, 0])
-                return True
+    boxes = []
+
+    if objects is None:
+        objects = state.boxes.keys()
+
+    for name in objects:
+        boxes += state.boxes.get(name, [])
+
+    for box in boxes:
+        if box is element:
+            continue
+        if right_touch(element.box, box.box):
+            # Touched another object
+            overlay(game, elements=[element, box], color=[0, 255, 0])
+            return True
 
     return False
 
 
-def has_left_collision(game, element, state):
+def has_left_collision(game, element, state, objects=None):
     """Check if the element has a left collision with another object."""
-    if element.box.left == 0:
-        # Touched left edge of the world
-        return True
+    boxes = []
 
-    for boxes in state.boxes.values():
-        for box in boxes:
-            if box is element:
-                continue
-            if left_touch(element.box, box.box):
-                # Touched another object
-                overlay(game, elements=[element, box])
-                return True
+    if objects is None:
+        objects = state.boxes.keys()
+
+    for name in objects:
+        boxes += state.boxes.get(name, [])
+
+    for box in boxes:
+        if box is element:
+            continue
+        if left_touch(element.box, box.box):
+            # Touched another object
+            overlay(game, elements=[element, box])
+            return True
 
     return False
 
 
-def has_bottom_collision(game, element, state, objects):
+def has_bottom_collision(game, element, state, objects=None):
     """Check if the element has a bottom collision with another solid object."""
     boxes = []
+
+    if objects is None:
+        objects = state.boxes.keys()
 
     for name in objects:
         boxes += state.boxes.get(name, [])
 
     for box in boxes:
         if bottom_touch(element.box, box.box):
+            # Touched another object
+            overlay(game, elements=[element, box])
+            return True
+
+    return False
+
+
+def has_top_collision(game, element, state, objects=None):
+    """Check if the element has a top collision with another solid object."""
+    boxes = []
+
+    if objects is None:
+        objects = state.boxes.keys()
+
+    for name in objects:
+        boxes += state.boxes.get(name, [])
+
+    for box in boxes:
+        if top_touch(element.box, box.box):
             # Touched another object
             overlay(game, elements=[element, box])
             return True
@@ -152,6 +209,18 @@ def overlay(game, elements, thinckness=5, color=(255, 0, 0)):
 class Mario(Model):
     """Model for the behavior of Mario in the game."""
 
+    class State:
+        def __init__(self):
+            self.died = False
+            self.small = True
+            self.big = False
+            self.fire = False
+            self.invincible = False
+
+    def __init__(self, game):
+        super().__init__(game)
+        self.state = Mario.State()
+
     # FIXME: move right collision with the "pole" and "poletop"
     # FIXME: move left collision with bottom edge of brick
 
@@ -161,24 +230,24 @@ class Mario(Model):
         was_standing = False
         was_moving_left = False
 
-        mario_2 = find_mario(behavior[-3])
-        mario_1 = find_mario(before)
-        mario_0 = find_mario(now)
+        mario_right_before = find_mario(behavior[-3])
+        mario_before = find_mario(before)
+        mario_now = find_mario(now)
 
-        if not mario_2 or not mario_1 or not mario_0:
+        if not mario_right_before or not mario_before or not mario_now:
             # Mario is not in the previous or current state
             return
 
-        if has_right_collision(self.game, mario_0, now):
+        if has_right_collision(self.game, mario_now, now):
             # Mario has right collision
             debug("Mario has right collision")
             return
 
-        if mario_2.box.x == mario_1.box.x:
+        if mario_right_before.box.x == mario_before.box.x:
             # Mario was standing still
             was_standing = True
 
-        elif mario_2.box.x > mario_1.box.x:
+        elif mario_right_before.box.x > mario_before.box.x:
             # Mario was moving left
             was_moving_left = True
 
@@ -193,7 +262,7 @@ class Mario(Model):
         # FIXME: handle Mario transforming (small to big, big to fire, etc.)
 
         debug("Mario should move right")
-        assert mario_1.box.x < mario_0.box.x, "Mario did not move right"
+        assert mario_before.box.x < mario_now.box.x, "Mario did not move right"
 
     def expect_move_left(self, before, now, behavior):
         """Expect Mario to move left."""
@@ -201,24 +270,28 @@ class Mario(Model):
         was_standing = False
         was_moving_right = False
 
-        mario_2 = find_mario(behavior[-3])
-        mario_1 = find_mario(before)
-        mario_0 = find_mario(now)
+        mario_right_before = find_mario(behavior[-3])
+        mario_before = find_mario(before)
+        mario_now = find_mario(now)
 
-        if not mario_2 or not mario_1 or not mario_0:
+        if not mario_right_before or not mario_before or not mario_now:
             # Mario is not in the previous or current state
             return
 
-        if has_left_collision(self.game, mario_0, now):
+        if has_left_collision(self.game, mario_now, now):
             # Mario has left collision
             debug("Mario has left collision")
             return
 
-        if mario_2.box.x == mario_1.box.x:
+        if mario_now.box.left == 0:
+            # Touched left edge of the world
+            return
+
+        if mario_right_before.box.x == mario_before.box.x:
             # Mario was standing still
             was_standing = True
 
-        elif mario_2.box.x < mario_1.box.x:
+        elif mario_right_before.box.x < mario_before.box.x:
             # Mario was moving right
             was_moving_right = True
 
@@ -229,11 +302,10 @@ class Mario(Model):
         if was_standing or was_moving_right:
             return
 
-        # FIXME: handle Mario dying
         # FIXME: handle Mario transforming (small to big, big to fire, etc.)
 
         debug("Mario should move left")
-        assert mario_1.box.x > mario_0.box.x, "Mario did not move left"
+        assert mario_before.box.x > mario_now.box.x, "Mario did not move left"
 
     def expect_jump(self, before, now, behavior):
         """Expect Mario to jump."""
@@ -241,6 +313,8 @@ class Mario(Model):
         on_the_ground_before = False
         jump_key_pressed_before = False
         jump_key_pressed_now = False
+        in_jump_before = False
+        top_collision_before = False
 
         right_before = behavior[-3]
 
@@ -249,31 +323,28 @@ class Mario(Model):
         mario_now = find_mario(now)
 
         # FIXME: we need to assert full jump sequence where mario reaches the top of the jump
+        # jump sequence completes either on
+        # 1. reaching the top of the jump due to gravity
+        # 2. hitting obstacle on the top
 
         if not mario_right_before or not mario_before or not mario_now:
             # Mario is not in the previous or current state
             return
 
-        if has_bottom_collision(
-            self.game,
-            mario_right_before,
-            right_before,
-            objects=["box", "brick", "collider", "pipe"],
-        ):
+        if has_top_collision(self.game, mario_before, before):
+            top_collision_before = True
+
+        if has_bottom_collision(self.game, mario_right_before, right_before):
             on_the_ground_right_before = True
 
-        if has_bottom_collision(
-            self.game,
-            mario_before,
-            before,
-            objects=["box", "brick", "collider", "pipe"],
-        ):
+        if has_bottom_collision(self.game, mario_before, before):
             on_the_ground_before = True
+
+        if mario_before.box.y < mario_right_before.box.y:
+            in_jump_before = True
 
         if before.keys.key_code("a") in before.keys:
             jump_key_pressed_before = True
-
-        # FIXME: looks like Mario needs to be on the ground after completing previous jump for at least two frames
 
         if now.keys.key_code("a") in now.keys:
             # Jump key is not pressed
@@ -286,8 +357,20 @@ class Mario(Model):
             and jump_key_pressed_now
         ):
             debug("Mario should jump")
-            dump("player", behavior)
             assert mario_now.box.y < mario_before.box.y, "Mario did not jump"
+
+        if in_jump_before:
+            debug("Mario should not be on the ground while in jump")
+            assert (
+                on_the_ground_before is False
+            ), "Mario should not be on the ground while in jump"
+
+            if not top_collision_before:
+                debug("Mario should continue rising or reach the top of the jump")
+                assert (
+                    mario_now.box.y <= mario_before.box.y
+                    or mario_now.box.y > mario_before.box.y
+                ), "Mario should continue rising or reach the top of the jump"
 
     def expect_fall(self, before, now, behavior):
         """Expect Mario to fall."""
@@ -303,9 +386,7 @@ class Mario(Model):
         if not mario_3 or not mario_2 or not mario_1 or not mario_0:
             return
 
-        if has_bottom_collision(
-            self.game, mario_1, before, objects=["box", "brick", "collider", "pipe"]
-        ):
+        if has_bottom_collision(self.game, mario_1, before):
             on_the_ground = True
 
         if mario_2.box.y <= mario_1.box.y:
@@ -314,8 +395,6 @@ class Mario(Model):
         if mario_3:
             if mario_3.box.y >= mario_2.box.y and mario_2.box.y == mario_1.box.y:
                 was_jumping_and_reached_top = True
-
-        # FIXME: we need to consider collisions with other objects such as ememies
 
         if not on_the_ground:
             if was_jumping_and_reached_top and before.keys.key_code("a") in before.keys:
@@ -329,9 +408,31 @@ class Mario(Model):
                 debug("Mario should fall")
                 assert mario_0.box.y > mario_1.box.y, "Mario did not fall"
 
-    def expect_die(self):
+    def expect_die(self, before, now, behavior):
         """Expect Mario to die."""
-        pass
+
+        enemy_objects = ["goomba", "koopa", "piranha", "plant", "spiny"]
+
+        mario_before = find_mario(before)
+        mario_now = find_mario(now)
+
+        if not mario_before or not mario_now:
+            return
+
+        if has_right_collision(self.game, mario_now, now, objects=enemy_objects):
+            debug("Mario dies if touches enemy on the right")
+            self.state.died = True
+            return
+
+        if has_left_collision(self.game, mario_now, now, objects=enemy_objects):
+            debug("Mario dies if touches enemy on the left")
+            self.state.died = True
+            return
+
+        if mario_now.box.bottom >= self.game.vision.viewport.height:
+            debug("Mario dies if falls into the abyss")
+            self.state.died = True
+            return
 
     def expect_big_mario(self):
         """Expect Mario to become big."""
@@ -355,10 +456,13 @@ class Mario(Model):
         now = behavior[-1]
 
         try:
-            self.expect_move_right(before, now, behavior)
-            self.expect_move_left(before, now, behavior)
-            self.expect_jump(before, now, behavior)
-            self.expect_fall(before, now, behavior)
+            self.expect_die(before, now, behavior)
+
+            if not self.state.died:
+                self.expect_move_right(before, now, behavior)
+                self.expect_move_left(before, now, behavior)
+                self.expect_jump(before, now, behavior)
+                self.expect_fall(before, now, behavior)
 
         except AssertionError as e:
             dump("player", behavior)
